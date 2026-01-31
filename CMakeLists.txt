@@ -74,13 +74,15 @@ USER_ADD_DIR(${CMAKE_SOURCE_DIR}/Bsp)
 USER_ADD_DIR(${CMAKE_SOURCE_DIR}/Bsp/delay)
 USER_ADD_DIR(${CMAKE_SOURCE_DIR}/Bsp/gpio)
 USER_ADD_DIR(${CMAKE_SOURCE_DIR}/Bsp/iic)
+USER_ADD_DIR(${CMAKE_SOURCE_DIR}/Bsp/filter)
 
 USER_ADD_DIR(${CMAKE_SOURCE_DIR}/Modules)
 USER_ADD_DIR(${CMAKE_SOURCE_DIR}/Modules/led)
 USER_ADD_DIR(${CMAKE_SOURCE_DIR}/Modules/motor)
-USER_ADD_DIR(${CMAKE_SOURCE_DIR}/Modules/mpu6050)
-USER_ADD_DIR(${CMAKE_SOURCE_DIR}/Modules/mpu6050/filter)
-
+USER_ADD_DIR(${CMAKE_SOURCE_DIR}/Modules/bmi088)
+USER_ADD_DIR(${CMAKE_SOURCE_DIR}/Modules/spl06)
+USER_ADD_DIR(${CMAKE_SOURCE_DIR}/Modules/flow)
+USER_ADD_DIR(${CMAKE_SOURCE_DIR}/Modules/nrf24l01)
 # ---------------- 链接选项（newlib-nano + printf浮点支持） -----------------
 target_link_options(${CMAKE_PROJECT_NAME} PUBLIC
     -lc_nano

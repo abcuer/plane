@@ -9,7 +9,9 @@
 void System_Init(void)
 {
     LedDeviceInit();
-    MPU_Init();
-    Motor_Init();
+   
+    // SPL06_Init();
+    // Flow_Init();    
+//    Motor_Init();
     delay_ms(3000);
 }

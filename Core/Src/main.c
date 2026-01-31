@@ -18,7 +18,9 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "spi.h"
 #include "tim.h"
+#include "usart.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
@@ -56,6 +58,7 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+uint8_t acc_flag, gyro_flag ;
 
 /* USER CODE END 0 */
 
@@ -90,14 +93,28 @@ int main(void)
   MX_GPIO_Init();
   MX_TIM2_Init();
   MX_TIM3_Init();
+  MX_USART1_UART_Init();
+  MX_SPI2_Init();
   /* USER CODE BEGIN 2 */
   System_Init();
+  acc_flag = BMI088_Get_Acc_ID();
+  gyro_flag = BMI088_Get_Gyro_ID();
+  if(acc_flag != 0x1E || gyro_flag != 0x0F)
+    {
+        SetLedMode(rLEDL, LED_ON); //点亮红灯
+    }
+    else
+    {
+        SetLedMode(bLEDL, LED_ON); //点亮蓝灯
+    }
+    
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */

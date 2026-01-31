@@ -13,13 +13,14 @@
 #include "bsp_delay.h"
 /***************** Modules ****************/
 #include "led.h"
-#include "mpu6050.h"
+#include "bmi088.h"
 #include "motor.h"
+#include "spl06.h"
+#include "flow.h"
+#include "nrf24l01.h"
 
 /***************** App ****************/
-// #include "mode.h"
-// #include "pid.h"
-// #include "control.h"
+
 #include "utils.h"
 
 /************************ 标志位 *********************/

@@ -2,6 +2,7 @@
 #define __BSP_IIC_H
 
 #include "stm32f1xx_hal.h"
+#include "gpio.h"
 
 typedef struct
 {
