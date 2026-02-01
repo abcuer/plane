@@ -70,5 +70,6 @@ uint8_t NRF24L01_Check(void);
 void ANO_NRF_Init(uint8_t model, uint8_t ch);
 uint8_t NRF24L01_TxPacket(uint8_t *txbuf);
 void ANO_NRF_Check_Event(void);
+void NRF24L01_init(void);
 
 #endif

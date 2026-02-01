@@ -202,3 +202,24 @@ void ANO_NRF_Check_Event(void)
     // 清除状态标志
     NRF24L01_Write_Reg(SPI_WRITE_REG + STATUS, sta);
 }
+
+void NRF24L01_init(void)
+{
+    uint8_t i = 0;
+    uint8_t status = 1; // 默认失败
+
+    do {
+        ANO_NRF_Init(MODEL_RX2, 40);
+        HAL_Delay(5);          // 给硬件一点喘息时间，增加成功率
+        status = NRF24L01_Check();
+        i++;
+        
+        if(i > 100) break;     // 尝试100次后放弃
+    } while(status == 1);
+
+    if(status == 0) {
+        SetLedMode(bLEDR, LED_ON); // 初始化成功，亮蓝灯
+    } else {
+        SetLedMode(rLEDR, LED_ON); // 初始化彻底失败，亮红灯
+    }
+}
