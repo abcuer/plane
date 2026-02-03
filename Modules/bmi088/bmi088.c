@@ -1,6 +1,7 @@
 #include "bmi088.h"
 #include "bsp_iic.h"
 #include "bsp_delay.h"
+#include "kalman.h"
 #include "gpio.h"
 
 // 静态定义总线对象（关联硬件引脚）
@@ -19,7 +20,7 @@ uint8_t BMI088_Init(void)
 {
     uint8_t status = 0;
     uint8_t read_val = 0;
-
+    IICInit(&bmi088_bus);
     // --- 1. 加速度计初始化 ---
     // 软复位
     IIC_Write_One_Byte(&bmi088_bus, BMI088_ACC_ADDR, ACC_SOFTRESET, 0xB6);
@@ -32,8 +33,7 @@ uint8_t BMI088_Init(void)
     delay_ms(10);
 
     // 校验 ACC ID
-    read_val = IIC_Read_One_Byte(&bmi088_bus, BMI088_ACC_ADDR, ACC_CHIP_ID);
-    if(read_val != 0x1E) return 1;
+    if(IIC_Read_One_Byte(&bmi088_bus, BMI088_ACC_ADDR, ACC_CHIP_ID)!= 0x1E) return 1;
 
     // 配置 ACC：±6g, ODR 400Hz, OSR4 滤波
     IIC_Write_One_Byte(&bmi088_bus, BMI088_ACC_ADDR, ACC_RANGE, 0x01);
@@ -48,25 +48,114 @@ uint8_t BMI088_Init(void)
     delay_ms(50);
 
     // 校验 GYRO ID
-    read_val = IIC_Read_One_Byte(&bmi088_bus, BMI088_GYRO_ADDR, GYRO_CHIP_ID);
-    if(read_val != 0x0F) return 2;
+    if(IIC_Read_One_Byte(&bmi088_bus, BMI088_GYRO_ADDR, GYRO_CHIP_ID)!= 0x0F) return 2;
 
     // 配置 GYRO：±2000dps, ODR 1000Hz, BW 116Hz, Normal Mode
     IIC_Write_One_Byte(&bmi088_bus, BMI088_GYRO_ADDR, GYRO_RANGE, 0x00);
     IIC_Write_One_Byte(&bmi088_bus, BMI088_GYRO_ADDR, GYRO_BANDWIDTH, 0x02);
     IIC_Write_One_Byte(&bmi088_bus, BMI088_GYRO_ADDR, GYRO_LPM1, 0x00);
-
+    
     return 0; // 全部成功
 }
 
-uint8_t BMI088_Get_Acc_ID(void)
+static uint8_t BMI088_Get_Acc_ID(void)
 {
-    // 假设宏定义 #define ACC_CHIP_ID 0x00
     return IIC_Read_One_Byte(&bmi088_bus, BMI088_ACC_ADDR, ACC_CHIP_ID);
 }
 
-uint8_t BMI088_Get_Gyro_ID(void)
+static uint8_t BMI088_Get_Gyro_ID(void)
 {
-    // 假设宏定义 #define GYRO_CHIP_ID 0x00
     return IIC_Read_One_Byte(&bmi088_bus, BMI088_GYRO_ADDR, GYRO_CHIP_ID);
 }
+
+/**
+ * @brief 读取加速度计数据并存入结构体
+ * @param imu 接收数据的结构体指针
+ */
+static void BMI088_Read_Acc(IMU_t *imu)
+{
+    uint8_t acc_raw[7]; 
+    if(IIC_Read_Multi_Byte(&bmi088_bus, BMI088_ACC_ADDR, 0x12, 7, acc_raw) == 0)
+    {
+        int16_t raw[3];
+        // 拼接原始数据
+        raw[0] = (int16_t)((acc_raw[2] << 8) | acc_raw[1]); // X
+        raw[1] = (int16_t)((acc_raw[4] << 8) | acc_raw[3]); // Y
+        raw[2] = (int16_t)((acc_raw[6] << 8) | acc_raw[5]); // Z
+
+        // 统一限幅和缩放
+        for(int i = 0; i < 3; i++) {
+            if(raw[i] > 21178) raw[i] = 21178;
+            else if(raw[i] < -21178) raw[i] = -21178;
+            raw[i] = raw[i] + (raw[i] >> 1);
+        }
+        // 根据背面安装要求取反 Y, Z
+        imu->acc[0] = raw[0];
+        imu->acc[1] = -raw[1]; 
+        imu->acc[2] = -raw[2]; 
+    }
+}
+/**
+ * @brief 读取陀螺仪数据并存入结构体
+ */
+static void BMI088_Read_Gyro(IMU_t *imu)
+{
+    uint8_t gyro_raw[6];
+    if(IIC_Read_Multi_Byte(&bmi088_bus, BMI088_GYRO_ADDR, 0x02, 6, gyro_raw) == 0) 
+    {
+        // 解析原始数据
+        imu->gyro[0] = (int16_t)((gyro_raw[1] << 8) | gyro_raw[0]); // X轴
+        imu->gyro[1] = (int16_t)((gyro_raw[3] << 8) | gyro_raw[2]); // Y轴
+        imu->gyro[2] = (int16_t)((gyro_raw[5] << 8) | gyro_raw[4]); // Z轴
+        // 根据背面安装要求取反 Y, Z
+        imu->gyro[1] = -imu->gyro[1];
+        imu->gyro[2] = -imu->gyro[2];
+    }
+}
+
+/**
+ * @brief 读取温度数据
+ * @return 转换后的浮点摄氏度
+ */
+static void BMI088_Read_Temp(IMU_t *imu)
+{
+    uint8_t tem_raw[3]; // 1字节哑字节 + 2字节数据
+    int16_t temp_uint11;
+
+    IIC_Read_Multi_Byte(&bmi088_bus, BMI088_ACC_ADDR, 0x22, 3, tem_raw);
+    temp_uint11 = (int16_t)((tem_raw[1] << 3) | (tem_raw[2] >> 5));
+    if (temp_uint11 > 1023) temp_uint11 -= 2048; // 处理补码
+    
+    imu->temp = (float)temp_uint11 * 0.125f + 23.0f;
+}
+
+/**
+ * @brief 读取 BMI088 传感器数据（加速度计、陀螺仪、温度）
+ * @param imu 指向 IMU 结构体的指针
+ */
+ // 2ms 调用一次
+void BMI088_GetData(IMU_t *imu)
+{
+    const float factor = 0.15f;  	
+    static float tBuff[3];
+    static struct _1_ekf_filter ekf[3] = {
+        {0.02,0,0,0,0.001,0.543},
+        {0.02,0,0,0,0.001,0.543},
+        {0.02,0,0,0,0.001,0.543}
+    };
+
+    BMI088_Read_Acc(imu);
+    BMI088_Read_Gyro(imu);
+    /* 滤波补偿 */
+    for(uint8_t i=0;i<3;i++)
+    {
+        kalman_1(&ekf[i],(float)imu->acc[i]);  
+        imu->acc[i] = (int16_t)ekf[i].out;
+        tBuff[i] = tBuff[i]+ ( (float)imu->gyro[i] - tBuff[i] ) * factor; 
+        imu->gyro[i] = round(tBuff[i]);
+        // gz 叠加用于 6ms 计算
+        imu->gyroZ_sum += imu->gyro[2];
+        imu->gyroZ_sum_cnt++;
+    }
+}
+

@@ -69,6 +69,8 @@ endfunction()
 # ---------------- 添加用户代码目录 -----------------
 USER_ADD_DIR(${CMAKE_SOURCE_DIR}/App)
 USER_ADD_DIR(${CMAKE_SOURCE_DIR}/App/utils)
+USER_ADD_DIR(${CMAKE_SOURCE_DIR}/App/ctrl)
+USER_ADD_DIR(${CMAKE_SOURCE_DIR}/App/scheduler)
 
 USER_ADD_DIR(${CMAKE_SOURCE_DIR}/Bsp)
 USER_ADD_DIR(${CMAKE_SOURCE_DIR}/Bsp/delay)
@@ -83,6 +85,12 @@ USER_ADD_DIR(${CMAKE_SOURCE_DIR}/Modules/bmi088)
 USER_ADD_DIR(${CMAKE_SOURCE_DIR}/Modules/spl06)
 USER_ADD_DIR(${CMAKE_SOURCE_DIR}/Modules/flow)
 USER_ADD_DIR(${CMAKE_SOURCE_DIR}/Modules/nrf24l01)
+USER_ADD_DIR(${CMAKE_SOURCE_DIR}/Modules/algorithm)
+USER_ADD_DIR(${CMAKE_SOURCE_DIR}/Modules/algorithm/algorithm_math)
+USER_ADD_DIR(${CMAKE_SOURCE_DIR}/Modules/algorithm/filter)
+USER_ADD_DIR(${CMAKE_SOURCE_DIR}/Modules/algorithm/kalman)
+USER_ADD_DIR(${CMAKE_SOURCE_DIR}/Modules/algorithm/imu)
+USER_ADD_DIR(${CMAKE_SOURCE_DIR}/Modules/algorithm/pid)
 # ---------------- 链接选项（newlib-nano + printf浮点支持） -----------------
 target_link_options(${CMAKE_PROJECT_NAME} PUBLIC
     -lc_nano

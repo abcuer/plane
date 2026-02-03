@@ -59,7 +59,7 @@ static void Led_Init(LedStaticParam_s *config, LED_Type_e LedType)
     SetLedMode(LedType, LED_OFF);
 }
 
-void LedDeviceInit(void)
+void LedDevice_Init(void)
 { 
 	LedStaticParam_s config;
 

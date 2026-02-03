@@ -282,33 +282,78 @@ unsigned char IIC_Read_One_Byte(iic_bus_t *bus, uint8_t daddr,uint8_t reg)
 	return dat;
 }
 
-
 uint8_t IIC_Read_Multi_Byte(iic_bus_t *bus, uint8_t daddr, uint8_t reg, uint8_t length, uint8_t buff[])
 {
-	unsigned char i;
-	IICStart(bus);
-	IICSendByte(bus,daddr<<1);
-	if(IICWaitAck(bus))
-	{
-		IICStop(bus);		 
-		return 1;		
-	}
-	IICSendByte(bus,reg);
-	IICWaitAck(bus);
-	
-	IICStart(bus);
-	IICSendByte(bus,(daddr<<1)+1);
-	IICWaitAck(bus);
-	for(i=0;i<length;i++)
-	{
-		buff[i] = IICReceiveByte(bus);
-		if(i<length-1)
-		{IICSendAck(bus);}
-	}
-	IICSendNotAck(bus);
-	IICStop(bus);
-	return 0;
+    unsigned char i;
+    
+    // 1. 发送写地址和目标寄存器
+    IICStart(bus);
+    IICSendByte(bus, daddr << 1);
+    if(IICWaitAck(bus))
+    {
+        IICStop(bus);        
+        return 1;        
+    }
+    IICSendByte(bus, reg);
+    IICWaitAck(bus);
+    
+    // --- 关键修改 1: 在重复起始信号前增加极微小延迟 ---
+    delay_us(2); 
+
+    // 2. 发送重复起始信号和读地址
+    IICStart(bus); // Repeated Start
+    IICSendByte(bus, (daddr << 1) + 1);
+    if(IICWaitAck(bus))
+    {
+        IICStop(bus);        
+        return 1;        
+    }
+
+    // 3. 循环读取数据
+    for(i = 0; i < length; i++)
+    {
+        buff[i] = IICReceiveByte(bus);
+        
+        // --- 关键修改 2: 严格控制 ACK 逻辑 ---
+        if(i < (length - 1))
+        {
+            IICSendAck(bus); // 还没读完，发应答
+        }
+    }
+    
+    // 4. 最后一个字节读完，发送 NACK 并停止
+    IICSendNotAck(bus);
+    IICStop(bus);
+    
+    return 0; // 返回 0 表示通信成功
 }
+
+// uint8_t IIC_Read_Multi_Byte(iic_bus_t *bus, uint8_t daddr, uint8_t reg, uint8_t length, uint8_t buff[])
+// {
+// 	unsigned char i;
+// 	IICStart(bus);
+// 	IICSendByte(bus,daddr<<1);
+// 	if(IICWaitAck(bus))
+// 	{
+// 		IICStop(bus);		 
+// 		return 1;		
+// 	}
+// 	IICSendByte(bus,reg);
+// 	IICWaitAck(bus);
+	
+// 	IICStart(bus);
+// 	IICSendByte(bus,(daddr<<1)+1);
+// 	IICWaitAck(bus);
+// 	for(i=0;i<length;i++)
+// 	{
+// 		buff[i] = IICReceiveByte(bus);
+// 		if(i<length-1)
+// 		{IICSendAck(bus);}
+// 	}
+// 	IICSendNotAck(bus);
+// 	IICStop(bus);
+// 	return 0;
+// }
 
 
 void IICInit(iic_bus_t *bus)
@@ -326,3 +371,4 @@ void IICInit(iic_bus_t *bus)
 		GPIO_InitStructure.Pin = bus->IIC_SCL_PIN ;
     HAL_GPIO_Init(bus->IIC_SCL_PORT, &GPIO_InitStructure);
 }
+

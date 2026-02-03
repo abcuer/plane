@@ -26,7 +26,6 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "headfile.h"
-#include "led.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -103,7 +102,7 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-
+    main_loop();
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */

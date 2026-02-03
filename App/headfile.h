@@ -9,19 +9,22 @@
 #include "gpio.h"
 
 /***************** Bsp ****************/
+#include "bsp_gpio.h"
 #include "bsp_iic.h"
 #include "bsp_delay.h"
 /***************** Modules ****************/
 #include "led.h"
 #include "bmi088.h"
-#include "motor.h"
 #include "spl06.h"
 #include "flow.h"
+#include "motor.h"
 #include "nrf24l01.h"
 
+#include "imu.h"
 /***************** App ****************/
-
+#include "control.h"
 #include "utils.h"
+#include "scheduler.h"
 
 /************************ 标志位 *********************/
 

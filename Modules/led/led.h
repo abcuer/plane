@@ -50,7 +50,7 @@ typedef struct
     LedRunningParam_s RunningParam;
 } LEDInstance;
 
-void LedDeviceInit(void);
+void LedDevice_Init(void);
 void SetLedMode(LED_Type_e LEDType, LED_Mode_e Mode);
 void Led_SyncBlink_Process(void);
 void Led_AltBlink_Process(void);
