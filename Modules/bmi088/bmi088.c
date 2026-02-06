@@ -84,11 +84,11 @@ static void BMI088_Read_Acc(IMU_t *imu)
         raw[2] = (int16_t)((acc_raw[6] << 8) | acc_raw[5]); // Z
 
         // 统一限幅和缩放
-        for(int i = 0; i < 3; i++) {
-            if(raw[i] > 21178) raw[i] = 21178;
-            else if(raw[i] < -21178) raw[i] = -21178;
-            raw[i] = raw[i] + (raw[i] >> 1);
-        }
+        // for(int i = 0; i < 3; i++) {
+        //     if(raw[i] > 21178) raw[i] = 21178;
+        //     else if(raw[i] < -21178) raw[i] = -21178;
+        //     raw[i] = raw[i] + (raw[i] >> 1);
+        // }
         // 根据背面安装要求取反 Y, Z
         imu->acc[0] = raw[0];
         imu->acc[1] = -raw[1]; 
@@ -133,29 +133,9 @@ static void BMI088_Read_Temp(IMU_t *imu)
  * @brief 读取 BMI088 传感器数据（加速度计、陀螺仪、温度）
  * @param imu 指向 IMU 结构体的指针
  */
- // 2ms 调用一次
 void BMI088_GetData(IMU_t *imu)
 {
-    const float factor = 0.15f;  	
-    static float tBuff[3];
-    static struct _1_ekf_filter ekf[3] = {
-        {0.02,0,0,0,0.001,0.543},
-        {0.02,0,0,0,0.001,0.543},
-        {0.02,0,0,0,0.001,0.543}
-    };
-
     BMI088_Read_Acc(imu);
     BMI088_Read_Gyro(imu);
-    /* 滤波补偿 */
-    for(uint8_t i=0;i<3;i++)
-    {
-        kalman_1(&ekf[i],(float)imu->acc[i]);  
-        imu->acc[i] = (int16_t)ekf[i].out;
-        tBuff[i] = tBuff[i]+ ( (float)imu->gyro[i] - tBuff[i] ) * factor; 
-        imu->gyro[i] = round(tBuff[i]);
-        // gz 叠加用于 6ms 计算
-        imu->gyroZ_sum += imu->gyro[2];
-        imu->gyroZ_sum_cnt++;
-    }
 }
 

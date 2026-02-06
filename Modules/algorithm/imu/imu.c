@@ -1,157 +1,151 @@
 #include "imu.h"
-#include "bmi088.h"
-#include "algorithm_math.h"
-#include <math.h>
+#include "math.h"
 
+#define sampleFreq	125.0f			// sample frequency in Hz
+/*采样周期的一半，用于求解四元数微分方程时计算角增量
+请确定自己的姿态调用周期: 8ms,即上面的sampleFreq: 125Hz*/
+#define halfT 0.004f
 
-//static float NormAccz;
-float NormAccz;  //»úÌåÔÚ´¹Ö±ÓÚµØÃæ·½ÏòÉÏµÄ¼ÓËÙ¶È£¨°üº¬ÖØÁ¦ÒÔ¼°ÔË¶¯¼ÓËÙ¶È£©¡£²¢·ÇÄ³¸öÖáµÄ¼ÓËÙ¶È£¬¶øÊÇÍ¨¹ýËùÓÐÖáµÄ¼ÓËÙ¶È¼ÆËã¶øÀ´¡£
-//6msÒ»´Î
-// 6ms调用一次
-void IMU_GetAngle(IMU_t *imu, float dt) 
+//这里的Kp,Ki是用于控制加速度计修正陀螺仪积分姿态的速度
+#define Kp 2.0f  		//2.0f
+#define Ki 0.0016f  	//0.002f
+
+float gx=0, gy=0, gz=0;				//由角速度计算的角速率
+float ax=0, ay=0, az=0;				//由加速度计算的加速度
+
+float acc_sp[3];						//积分速度
+float acc_sp_RHRH[3];				//处理后速度
+
+float bd_gx=0, bd_gy=0, bd_gz=0;
+float bd_ax=0, bd_ay=0, bd_az=0;
+
+//初始姿态四元数(地理坐标系)，q(q0,q1,q2,q3)
+float q0 = 1.0f, q1 = 0.0f, q2 = 0.0f, q3 = 0.0f;    //最优估计四元数
+float q0_yaw = 1.0f, q1_yaw = 0.0f, q2_yaw = 0.0f, q3_yaw = 0.0f;    //弥补Mahony算法在无地磁情况解算Yaw轴满足不了大扰动要求的现象
+//定义姿态解算误差的积分
+//当前加计测得的重力加速度在三轴(x,y,z)上的分量,与当前姿态计算得来的重力在三轴上的分量的误差的积分
+float xErrorInt = 0.0f, yErrorInt = 0.0f, zErrorInt = 0.0f;
+
+/*
+ * 姿态融合
+ * 单位: m/s^2   rad/s
+*/
+static void ImuUpdate(float gx, float gy, float gz, float ax, float ay, float az)//g表陀螺仪，a表加计
 {
-	volatile struct V{
-        float x;
-        float y;
-        float z;
-    } Gravity,Acc,Gyro,AccGravity;
-
-	static struct V GyroIntegError = {0};
-	static  float KpDef = 0.8f ;
-	static  float KiDef = 0.0003f;
-	static Quaternion NumQ = {1, 0, 0, 0};
-	float q0_t,q1_t,q2_t,q3_t;
-  //float NormAcc;	
-	float NormQuat; 
-	float HalfTime = dt * 0.5f;
-	Gravity.x = 2*(NumQ.q1 * NumQ.q3 - NumQ.q0 * NumQ.q2);								
-	Gravity.y = 2*(NumQ.q0 * NumQ.q1 + NumQ.q2 * NumQ.q3);						  
-	Gravity.z = 1-2*(NumQ.q1 * NumQ.q1 + NumQ.q2 * NumQ.q2);	
-	// ¼ÓËÙ¶È¹éÒ»»¯
-    NormQuat = Q_rsqrt(squa(imu->acc[0])+ squa(imu->acc[1]) +squa(imu->acc[2]));
+ 	float norm;
 	
-    Acc.x = imu->acc[0] * NormQuat;
-    Acc.y = imu->acc[1] * NormQuat;
-    Acc.z = imu->acc[2] * NormQuat;	
- 	//ÏòÁ¿²î³ËµÃ³öµÄÖµ
-	AccGravity.x = (Acc.y * Gravity.z - Acc.z * Gravity.y);
-	AccGravity.y = (Acc.z * Gravity.x - Acc.x * Gravity.z);
-	AccGravity.z = (Acc.x * Gravity.y - Acc.y * Gravity.x);
-	//ÔÙ×ö¼ÓËÙ¶È»ý·Ö²¹³¥½ÇËÙ¶ÈµÄ²¹³¥Öµ
-    GyroIntegError.x += AccGravity.x * KiDef;
-    GyroIntegError.y += AccGravity.y * KiDef;
-    GyroIntegError.z += AccGravity.z * KiDef;
-	//½ÇËÙ¶ÈÈÚºÏ¼ÓËÙ¶È»ý·Ö²¹³¥Öµ
-    Gyro.x = imu->gyro[0] * Gyro_Gr + KpDef * AccGravity.x  +  GyroIntegError.x;//»¡¶ÈÖÆ
-    Gyro.y = imu->gyro[1] * Gyro_Gr + KpDef * AccGravity.y  +  GyroIntegError.y;
-    Gyro.z = imu->gyro[2] * Gyro_Gr + KpDef * AccGravity.z  +  GyroIntegError.z;		
-	// Ò»½×Áú¸ñ¿âËþ·¨, ¸üÐÂËÄÔªÊý
-
-	q0_t = (-NumQ.q1*Gyro.x - NumQ.q2*Gyro.y - NumQ.q3*Gyro.z) * HalfTime;
-	q1_t = ( NumQ.q0*Gyro.x - NumQ.q3*Gyro.y + NumQ.q2*Gyro.z) * HalfTime;
-	q2_t = ( NumQ.q3*Gyro.x + NumQ.q0*Gyro.y - NumQ.q1*Gyro.z) * HalfTime;
-	q3_t = (-NumQ.q2*Gyro.x + NumQ.q1*Gyro.y + NumQ.q0*Gyro.z) * HalfTime;
+	float q0q0 = q0 * q0;
+	float q0q1 = q0 * q1;
+	float q0q2 = q0 * q2;
+	float q1q1 = q1 * q1;
+	float q1q3 = q1 * q3;
+	float q2q2 = q2*q2;
+	float q2q3 = q2*q3;
+	float q3q3 = q3*q3;	
+	float vx, vy, vz;
+	float ex, ey, ez;
 	
-	NumQ.q0 += q0_t;
-	NumQ.q1 += q1_t;
-	NumQ.q2 += q2_t;
-	NumQ.q3 += q3_t;
-	// ËÄÔªÊý¹éÒ»»¯
-	NormQuat = Q_rsqrt(squa(NumQ.q0) + squa(NumQ.q1) + squa(NumQ.q2) + squa(NumQ.q3));
-	NumQ.q0 *= NormQuat;
-	NumQ.q1 *= NormQuat;
-	NumQ.q2 *= NormQuat;
-	NumQ.q3 *= NormQuat;	
-	{
-		 	/*»úÌå×ø±êÏµÏÂµÄZ·½ÏòÏòÁ¿*/  //ÕâÀïÃèÊö¸ü×¼È·Ó¦¸ÃÊÇµØÃæ×ø±êÏµÏÂµÄzÏòÁ¿¡£
-		//float vecxZ = 2 * NumQ.q0 *NumQ.q2 - 2 * NumQ.q1 * NumQ.q3 ;/*¾ØÕó(3,1)Ïî*/
-		float vecxZ =  2 * NumQ.q1 * NumQ.q3 - 2 * NumQ.q0 *NumQ.q2 ;//¾ØÕó(3,1)Ïî£¬£¬ ¸ü¸Ä£¬ÉÏÃæÕâ¾ä·½Ïò·´ÁË£¬×¢Òâ£ºpAngE->pitchÒ²Òª¸Ä·½Ïò
-		//ÒªÇó´ïµ½ÕâÑùµÄÐ§¹û£¬ÔÚ¾²Ö¹×´Ì¬ÏÂ£¬·É»ú·­¹ö»ò¸©ÑöÊ±£¬ËäÈ»ÍÓÂÝÒÇz¼ÓËÙ¶È²»¶Ï±ä»¯£¬µ«ÔÚµØÃæ×ø±êÏÂ£¬·É»ú´¹Ö±ÓÚµØÃæµÄ¼ÓËÙ¶È NormAccz Ê¼ÖÕÎªÖØÁ¦¼ÓËÙ¶ÈÖµ¡£
+	float q0_yawq0_yaw = q0_yaw * q0_yaw;
+	float q1_yawq1_yaw = q1_yaw * q1_yaw;
+	float q2_yawq2_yaw = q2_yaw * q2_yaw;
+	float q3_yawq3_yaw = q3_yaw * q3_yaw;
+	float q1_yawq2_yaw = q1_yaw * q2_yaw;
+	float q0_yawq3_yaw = q0_yaw * q3_yaw;
+	
+	//**************************Yaw轴计算******************************
+	//Yaw轴四元素的微分方程，先单独解出yaw的姿态
+	q0_yaw = q0_yaw + (-q1_yaw * gx - q2_yaw * gy - q3_yaw * gz) * halfT;	//halfT采样时间的一半
+	q1_yaw = q1_yaw + (q0_yaw * gx + q2_yaw * gz - q3_yaw * gy) * halfT;
+	q2_yaw = q2_yaw + (q0_yaw * gy - q1_yaw * gz + q3_yaw * gx) * halfT;
+	q3_yaw = q3_yaw + (q0_yaw * gz + q1_yaw * gy - q2_yaw * gx) * halfT;
+	
+	//规范化Yaw轴四元数
+	norm = sqrt(q0_yawq0_yaw + q1_yawq1_yaw + q2_yawq2_yaw + q3_yawq3_yaw);
+	q0_yaw = q0_yaw / norm;
+	q1_yaw = q1_yaw / norm;
+	q2_yaw = q2_yaw / norm;
+	q3_yaw = q3_yaw / norm;
+	
+	if(ax * ay * az	== 0)//如果加速度数据无效，或者自由坠落，不结算
+	return ;
+	
+	//规范化加速度计值
+	norm = sqrt(ax * ax + ay * ay + az * az); 
+	ax = ax / norm;
+	ay = ay / norm;
+	az = az / norm;
 		
-		float vecyZ = 2 * NumQ.q2 *NumQ.q3 + 2 * NumQ.q0 * NumQ.q1;/*¾ØÕó(3,2)Ïî*/
-		float veczZ =  1 - 2 * NumQ.q1 *NumQ.q1 - 2 * NumQ.q2 * NumQ.q2;	/*¾ØÕó(3,3)Ïî*/		 
+	//估计重力方向和流量/变迁，重力加速度在机体系的投影
+	vx = 2 * (q1q3 - q0q2);											
+	vy = 2 * (q0q1 + q2q3);
+	vz = q0q0 - q1q1 - q2q2 + q3q3 ;
 		
-			#ifdef	YAW_GYRO
-			imu->yaw = atan2f(2 * NumQ.q1 *NumQ.q2 + 2 * NumQ.q0 * NumQ.q3, 1 - 2 * NumQ.q2 *NumQ.q2 - 2 * NumQ.q3 * NumQ.q3) * RtA;  //yaw
-			#else
-				//ÕâÀï6msµ÷ÓÃÒ»´Î£¬Êµ¼Ê2ms²âÁ¿Ò»´Î
-				//float yaw_G = pMpu->gyroZ * Gyro_G;//½«ZÖá½ÇËÙ¶ÈÍÓÂÝÒÇÖµ ×ª»»ÎªZ½Ç¶È/Ãë      Gyro_GÍÓÂÝÒÇ³õÊ¼»¯Á¿³Ì+-2000¶ÈÃ¿ÃëÓÚ1 / (65536 / 4000) = 0.03051756*2		
-				//6msÄÚ¼¸´Î²âÁ¿µÄÆ½¾ùÖµ
-				float yaw_G = imu->gyroZ_sum * Gyro_G; //2ms²âÁ¿ÖµµÄ×ÜºÍ
-				yaw_G = yaw_G/imu->gyroZ_sum_cnt;//Çó2ms²âÁ¿Æ½¾ùÖµ
-				imu->gyroZ_sum=0;//¸´Î»
-				imu->gyroZ_sum_cnt=0;//¸´Î»
-					
-				if((yaw_G > 1.0f) || (yaw_G < -1.0f)) //Êý¾ÝÌ«Ð¡¿ÉÒÔÈÏÎªÊÇ¸ÉÈÅ£¬²»ÊÇÆ«º½¶¯×÷,µ±yaw_G=1¶È/Ãë, gyroZ=16.384
-				//if((yaw_G > 0.2f) || (yaw_G < -0.2f)) //Êý¾ÝÌ«Ð¡¿ÉÒÔÈÏÎªÊÇ¸ÉÈÅ£¬²»ÊÇÆ«º½¶¯×÷,µ±yaw_G=1¶È/Ãë, gyroZ=16.384
-				{
-						//×¢Òâ£º¶ªÆúÎ¢Ð¡yaw½ÇËÙ¶È£¬»áµ¼ÖÂyawÖð½¥Æ¯ÒÆ£¬½â¾ö·½·¨ÊÇÉèÖÃYAWÆ«º½ÁãÆ¯ÐÞÕý
-						//pAngE->yaw  += yaw_G * dt;//½ÇËÙ¶È»ý·Ö³ÉÆ«º½½Ç£¬
-						//Êµ¼Ê×ªÒ»È¦Ö»ÓÐ319¶È×óÓÒ¡£Õý·´×ª²î2¶È
-						imu->yaw  +=   yaw_G * dt /0.89f; //Õâ¸ö½Ç¶ÈÊÇÁ¬ÐøµÄ£¬¿ÉÒÔ³¬¹ý+/-360¶È
-				}
+	//向量外积再相减得到差分就是误差
+	ex = (ay * vz - az * vy) ;      
+	ey = (az * vx - ax * vz) ;
+	ez = (ax * vy - ay * vx) ;
+	
+	//对误差进行PI计算
+	xErrorInt = xErrorInt + ex * Ki;			
+	yErrorInt = yErrorInt + ey * Ki;
+	zErrorInt = zErrorInt + ez * Ki;
+	
+	//校正陀螺仪
+	gx = gx + Kp * ex + xErrorInt;					
+	gy = gy + Kp * ey + yErrorInt;
+	gz = gz + Kp * ez + zErrorInt;			
 				
-				//µ±rollºÍpitch½ÇËÙ¶ÈºÜÐ¡µÄÊ±ºò¡£²¢ÇÒµ±·É»ú¾²Ö¹Ê±£¬yaw½ÇËÙ¶ÈÒ²Ó¦¸ÃÎª0£¬·ñÔòÈÏÎªyaw½ÇËÙ¶ÈÐèÒª¸üÐÂÐÞÕýÖµ
-				// else if( (ABS(imu->gyro[0])<10 || ABS(imu->gyro[1])<10 ) && absFloat(imu->pitch)<5.0f && absFloat(imu->roll)<5.0f){ 
-					
-				// 		//µ±·É»ú´¦ÓÚ¾²Ö¹×´Ì¬£¬²¢ÇÒË®Æ½×ËÌ¬½ÇÆ«ÒÆ²»´óµÄÊ±ºò
-				// 		//ÄÄÅÂÖ»ÓÐ+/-3µÄ½ÇËÙ¶È²âÁ¿Æ¯ÒÆ£¬Ò²ÓÐ0.18¶È/ÃëÁË£¬Ò»·ÖÖÓ10.8¶È£¬6·ÖÖÓ64.8¶ÈÎó²î
-				// 		//ËùÒÔÕâÀïÐèÒª°Ñ¾²Ö¹×´Ì¬Ê±ÕæÕýÐÞÕýµ½Áã
-				// 		if(!ALL_flag.unlock || Aux_Rc.thr<1200 ){
-							
-				// 				//int16_t gyroZ_tmp = round( (float)pMpu->gyroZ + MPU6050.gyroZ_offset ); //ÕâÒ»¾äÔÚ mpu6050.cÀïÃæÖ´ÐÐ£¬Õâ±ßÁÙÊ±²âÊÔ
-				// 				int16_t gyroZ_tmp = imu->gyro[2]; //¾­¹ýÐÞÕýµÄÔ­Ê¼Öµ
-
-				// 				//ÐÞÕý·½ÏòÓÚÆ«²î·½ÏòÏà·´ //½ö½öÊÇ¾²Ì¬ÐÞÕý
-				// 				imu->gyroZ_offset -= ( (float)gyroZ_tmp )*0.005f;  //¼ÆËãpMpu->gyroZÊ±£¬»á¼ÓÉÏÐÞÕýÖµ
-							
-				// 				//ÏÞÖÆÐÞÕý·ù¶È
-				// 				if(imu->gyroZ_offset>10.0f) imu->gyroZ_offset =10.0f;
-				// 				if(imu->gyroZ_offset<-10.0f) imu->gyroZ_offset =-10.0f;
-								
-				// 				imu->gyroZ_cnt++;
-				// 		}
-				// }
-				
-				
-				// if(ALL_flag.unlock && Aux_Rc.thr>1300 ){//·ÉÐÐÖÐ,Æ«º½²âÁ¿Æ«²î²¹³¥£¬·É»ú³¯ÄÄ¸ö·½ÏòÆ¯ÒÆ£¬¾Í³¯ËûµÄ·´·½Ïò²¹³¥¡£
-				// 				//±ÈÈçË³Ê±ÕëÆ¯ÒÆ£¬ÎÒÃÇ¾Í°Ñ²¹³¥ÉèÖÃÎªÕý£¨ÄæÊ±Õë²¹³¥£©£¬ÄæÊ±ÕëÆ¯ÒÆ£¬¾Í°Ñ²¹³¥ÉèÖÃÎª¸º£¨Ë³Ê±Õë²¹³¥£©
-				// 				//²¹³¥Öµ£¬ÄÜÈÃ·É»úÎóÒÔÎª³¯Ïà·´·½Ïò×ª¶¯£¬×îÖÕµÃÒÔÐÞÕýÆ«º½½ÇËÙ¶ÈÆ¯ÒÆ
-				// 				imu->gyroZ_offset1 = -Aux_Rc.offse_yaw; //Aux_Rc.offse_yaw=10±íÊ¾ÄæÊ±Õë²¹³¥10
-				// }
-				// else{
-				// 				imu->gyroZ_offset1 = 0; //Æ½Ê±Îª0£¬Æ½Ê±Îª¾²Ì¬Öµ£¬Èç¹ûÓÐÎó²î¿ÉÒÔÍ¨¹ý ÍÓÂÝÒÇÐ£×¼À´Ïû³ý£¬Ò£¿Ø³¤°´K2£¨ÓÍÃÅÖµ·Åµ½×îµÍ£©
-				// }
-				
-				
-				
-				//
-				
-				
-			#endif
-				
-			//¸©Ñö½Ç·¶Î§Ö»ÓÐ£¨-90~90£©£¬ÎÞ·¨Çø·Ö·É»ú³¯ÉÏ»¹ÊÇ³¯ÏÂ¡£
-			//³¯ÉÏÊ±	(-90~90)
-			//	F   30¶È            B -30¶È
-			//	   .             .    
-			//	 .    B       F   .
-			//³¯ÏÂÊ±(-90~90)     
-		  //       .     F      B     .
-			//	       .              .
-		  //     B                     F
-			//·­¹ö½Ç¿ÉÒÔÇø·Ö³¯ÉÏºÍ³¯ÏÂ£¬³¯ÉÏÊ±£¨0 ~ +/-90£©£¬³¯ÏÂÊ±(+/-90 ~ +/-180)
-
-			//pAngE->pitch  =  asin(vecxZ)* RtA;	 //¸©Ñö½Ç	 0~+/-90	
-			imu->pitch  =  -asin(vecxZ)* RtA;	 //¸©Ñö½Ç	 0~+/-90
-				
-			//pAngE->tmp = pAngE->pitch;
-				
-			imu->roll	= atan2f(vecyZ, veczZ) * RtA;	//ºá¹ö½Ç 0~+/-180
-			NormAccz = imu->acc[0]* vecxZ + imu->acc[1] * vecyZ + imu->acc[2] * veczZ;		
-	}
+	//四元素的微分方程
+	q0 = q0 + (-q1 * gx - q2	*	gy - q3	*	gz)	*	halfT;
+	q1 = q1 + (q0	*	gx + q2	*	gz - q3	*	gy)	*	halfT;
+	q2 = q2 + (q0	*	gy - q1	*	gz + q3	*	gx)	*	halfT;
+	q3 = q3 + (q0	*	gz + q1	*	gy - q2	*	gx)	*	halfT;
+	
+	//规范化Pitch、Roll轴四元数
+	norm = sqrt(q0q0 + q1q1 + q2q2 + q3q3);
+	q0 = q0 / norm;
+	q1 = q1 / norm;
+	q2 = q2 / norm;
+	q3 = q3 / norm;
+	
+	//求解欧拉角
+	bmi.pitch = atan2(2 * q2q3 + 2 * q0q1, -2 * q1q1 - 2 * q2q2 + 1) * 57.3f;
+	bmi.roll = asin(-2 * q1q3 + 2 * q0q2) * 57.3f;
+	bmi.yaw = atan2(2 * q1_yawq2_yaw + 2 * q0_yawq3_yaw, -2 * q2_yawq2_yaw - 2 * q3_yawq3_yaw + 1)	* 57.3f;
 }
-
-float GetAccz(void)
+void IMU_GetAngle(uint8_t on)
 {
-	return NormAccz;
+    BMI088_GetData(&bmi);
+
+	//陀螺仪量程为:±250 dps     获取到的陀螺仪数据除以131           可以转化为带物理单位的数据，单位为：°/s
+	//陀螺仪量程为:±500 dps     获取到的陀螺仪数据除以65.5          可以转化为带物理单位的数据，单位为：°/s
+	//陀螺仪量程为:±1000dps     获取到的陀螺仪数据除以32.8          可以转化为带物理单位的数据，单位为：°/s
+	//陀螺仪量程为:±2000dps     获取到的陀螺仪数据除以16.4          可以转化为带物理单位的数据，单位为：°/s
+
+	//加速度计量程为:±2g        获取到的加速度计数据 除以16384      可以转化为带物理单位的数据，单位：g(m/s^2)
+	//加速度计量程为:±4g        获取到的加速度计数据 除以8192       可以转化为带物理单位的数据，单位：g(m/s^2)
+	//加速度计量程为:±8g        获取到的加速度计数据 除以4096       可以转化为带物理单位的数据，单位：g(m/s^2)
+	//加速度计量程为:±16g       获取到的加速度计数据 除以2048       可以转化为带物理单位的数据，单位：g(m/s^2)
+	
+	ax = (float)bmi.acc[0] * 0.000183105f; 
+	ay = (float)bmi.acc[1] * 0.000183105f;
+	az = (float)bmi.acc[2] * 0.000183105f;
+	   
+	bd_gx = (float)bmi.gyro[0] * 0.0609756f;
+	bd_gy = (float)bmi.gyro[1] * 0.0609756f;
+	bd_gz = (float)bmi.gyro[2] * 0.0609756f;
+	
+	bd_ax = 1.0064f*ax - 717.6192f;
+	bd_ay = 1.0104f*ay + 39.3216f;
+	bd_az = 0.9762f*az + 704.5120f;
+	
+	LPF_1_(1.8f,0.002f ,bd_gx*0.0174533f, gx);
+	LPF_1_(1.8f,0.002f ,bd_gy*0.0174533f, gy);
+	
+	acc_sp[0] += (az-0.995f)/3.0f;
+	acc_sp[1] += ax * 5.2f;
+	acc_sp[2] -= ay * 5.2f;	
+	
+	if(on == 1)
+		ImuUpdate(bd_gx*0.0174533f, bd_gy*0.0174533f, bd_gz*0.0174533f, bd_ax, bd_ay, bd_az);
 }

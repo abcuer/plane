@@ -46,7 +46,7 @@ void main_loop()
 		// 	loop.cnt_4ms = 0;
 		// 	Duty_4ms();						//ÖÜÆÚ4msµÄÈÎÎñ
 		// }
-		if( loop.cnt_6ms >= 3 )
+		if( loop.cnt_6ms >= 4 )
 		{
             SetLedMode(bLEDR, LED_ON);
             SetLedMode(bLEDL, LED_OFF);
@@ -81,7 +81,7 @@ void Duty_2ms()
 {
     time[0] = GetSysTime_us();
 
-    BMI088_GetData(&bmi);
+    // BMI088_GetData(&bmi);
 
     time[0] = GetSysTime_us() - time[0];
 }
@@ -90,7 +90,6 @@ void Duty_6ms()
 {
     time[1] = GetSysTime_us();
 
-    IMU_GetAngle(&bmi, 0.006f); // 6ms调用一次
-
+    IMU_GetAngle(1); // 8ms调用一次
     time[1] = GetSysTime_us() - time[1];
 }

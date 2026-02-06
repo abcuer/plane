@@ -28,9 +28,9 @@ typedef struct
     int16_t gyro[3];  // 陀螺仪原始值
     float temp;     // 温度值
     float roll, pitch, yaw;
-    float gyroZ_offset, gyroZ_offset1; 
-	uint16_t gyroZ_cnt, gyroZ_sum_cnt;	
-	int16_t gyroZ_sum; 
+    // float gyroZ_offset, gyroZ_offset1; 
+	// uint16_t gyroZ_cnt, gyroZ_sum_cnt;	
+	// int16_t gyroZ_sum; 
 }IMU_t;
 
 uint8_t BMI088_Init(void);
