@@ -79,18 +79,18 @@ void main_loop()
 
 void Duty_2ms()
 {
-    time[0] = HAL_GetTickUs();
+    time[0] = GetSysTime_us();
 
     BMI088_GetData(&bmi);
 
-    time[0] = HAL_GetTickUs() - time[0];
+    time[0] = GetSysTime_us() - time[0];
 }
 
 void Duty_6ms()
 {
-    time[1] = HAL_GetTickUs();
+    time[1] = GetSysTime_us();
 
     IMU_GetAngle(&bmi, 0.006f); // 6ms调用一次
 
-    time[1] = HAL_GetTickUs() - time[1];
+    time[1] = GetSysTime_us() - time[1];
 }
