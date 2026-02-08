@@ -65,12 +65,10 @@ static void ImuUpdate(float gx, float gy, float gz, float ax, float ay, float az
 	q1_yaw = q1_yaw / norm;
 	q2_yaw = q2_yaw / norm;
 	q3_yaw = q3_yaw / norm;
-	
-	if(ax * ay * az	== 0)//如果加速度数据无效，或者自由坠落，不结算
-	return ;
-	
+
 	//规范化加速度计值
 	norm = sqrt(ax * ax + ay * ay + az * az); 
+	if(norm < 0.1f) return;
 	ax = ax / norm;
 	ay = ay / norm;
 	az = az / norm;
@@ -96,10 +94,10 @@ static void ImuUpdate(float gx, float gy, float gz, float ax, float ay, float az
 	gz = gz + Kp * ez + zErrorInt;			
 				
 	//四元素的微分方程
-	q0 = q0 + (-q1 * gx - q2	*	gy - q3	*	gz)	*	halfT;
-	q1 = q1 + (q0	*	gx + q2	*	gz - q3	*	gy)	*	halfT;
-	q2 = q2 + (q0	*	gy - q1	*	gz + q3	*	gx)	*	halfT;
-	q3 = q3 + (q0	*	gz + q1	*	gy - q2	*	gx)	*	halfT;
+	q0 = q0 + (-q1 * gx - q2 * gy - q3 * gz) * halfT;
+	q1 = q1 + (q0 * gx + q2	*gz - q3 * gy) * halfT;
+	q2 = q2 + (q0 * gy - q1	*gz + q3 * gx) * halfT;
+	q3 = q3 + (q0 * gz + q1	*gy - q2 * gx) * halfT;
 	
 	//规范化Pitch、Roll轴四元数
 	norm = sqrt(q0q0 + q1q1 + q2q2 + q3q3);
@@ -109,8 +107,8 @@ static void ImuUpdate(float gx, float gy, float gz, float ax, float ay, float az
 	q3 = q3 / norm;
 	
 	//求解欧拉角
-	bmi.pitch = atan2(2 * q2q3 + 2 * q0q1, -2 * q1q1 - 2 * q2q2 + 1) * 57.3f;
-	bmi.roll = asin(-2 * q1q3 + 2 * q0q2) * 57.3f;
+	bmi.pitch = atan2(2 * q2q3 + 2 * q0q1, -2 * q1q1 - 2 * q2q2 + 1) * 57.3f - 3.3f;
+	bmi.roll = asin(-2 * q1q3 + 2 * q0q2) * 57.3f - 45.3f;
 	bmi.yaw = atan2(2 * q1_yawq2_yaw + 2 * q0_yawq3_yaw, -2 * q2_yawq2_yaw - 2 * q3_yawq3_yaw + 1)	* 57.3f;
 }
 void IMU_GetAngle(uint8_t on)
@@ -139,8 +137,8 @@ void IMU_GetAngle(uint8_t on)
 	bd_ay = 1.0104f*ay + 39.3216f;
 	bd_az = 0.9762f*az + 704.5120f;
 	
-	LPF_1_(1.8f,0.002f ,bd_gx*0.0174533f, gx);
-	LPF_1_(1.8f,0.002f ,bd_gy*0.0174533f, gy);
+	LPF_1_(1.8f, 0.002f, bd_gx*0.0174533f, gx);
+	LPF_1_(1.8f, 0.002f, bd_gy*0.0174533f, gy);
 	
 	acc_sp[0] += (az-0.995f)/3.0f;
 	acc_sp[1] += ax * 5.2f;

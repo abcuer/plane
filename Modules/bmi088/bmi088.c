@@ -37,7 +37,8 @@ uint8_t BMI088_Init(void)
 
     // 配置 ACC：±6g, ODR 400Hz, OSR4 滤波
     IIC_Write_One_Byte(&bmi088_bus, BMI088_ACC_ADDR, ACC_RANGE, 0x01);
-    IIC_Write_One_Byte(&bmi088_bus, BMI088_ACC_ADDR, ACC_CONF, 0x8A);
+    // IIC_Write_One_Byte(&bmi088_bus, BMI088_ACC_ADDR, ACC_CONF, 0x8A);
+      IIC_Write_One_Byte(&bmi088_bus, BMI088_ACC_ADDR, ACC_CONF, 0x88);
     
     // 验证配置是否写入成功
     if(IIC_Read_One_Byte(&bmi088_bus, BMI088_ACC_ADDR, ACC_CONF) != 0x8A) return 3;
@@ -52,7 +53,7 @@ uint8_t BMI088_Init(void)
 
     // 配置 GYRO：±2000dps, ODR 1000Hz, BW 116Hz, Normal Mode
     IIC_Write_One_Byte(&bmi088_bus, BMI088_GYRO_ADDR, GYRO_RANGE, 0x00);
-    IIC_Write_One_Byte(&bmi088_bus, BMI088_GYRO_ADDR, GYRO_BANDWIDTH, 0x02);
+    IIC_Write_One_Byte(&bmi088_bus, BMI088_GYRO_ADDR, GYRO_BANDWIDTH, 0x00);
     IIC_Write_One_Byte(&bmi088_bus, BMI088_GYRO_ADDR, GYRO_LPM1, 0x00);
     
     return 0; // 全部成功
