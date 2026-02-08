@@ -18,7 +18,9 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "led.h"
 #include "spi.h"
+#include "stm32f1xx_hal.h"
 #include "tim.h"
 #include "usart.h"
 #include "gpio.h"
@@ -95,9 +97,12 @@ int main(void)
   MX_SPI2_Init();
   /* USER CODE BEGIN 2 */
   System_Init();
-    
+  HAL_Delay(100);
+  SetLedMode(rLEDR, LED_ON);
+  IMU_Check_Offset(); // 初始化IMU偏置校准
+  SetLedMode(rLEDR, LED_OFF);
   /* USER CODE END 2 */
-
+  
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)

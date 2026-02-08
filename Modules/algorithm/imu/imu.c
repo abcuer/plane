@@ -1,5 +1,6 @@
 #include "imu.h"
 #include "math.h"
+#include "stm32f1xx_hal.h"
 
 #define sampleFreq	125.0f			// sample frequency in Hz
 /*采样周期的一半，用于求解四元数微分方程时计算角增量
@@ -26,91 +27,76 @@ float q0_yaw = 1.0f, q1_yaw = 0.0f, q2_yaw = 0.0f, q3_yaw = 0.0f;    //弥补Mah
 //当前加计测得的重力加速度在三轴(x,y,z)上的分量,与当前姿态计算得来的重力在三轴上的分量的误差的积分
 float xErrorInt = 0.0f, yErrorInt = 0.0f, zErrorInt = 0.0f;
 
+float gz_offset = 0.0f; // Z轴零偏偏移量
+uint8_t is_calibrated = 0;
+
+// 在系统启动后调用此函数一次，期间保持板子绝对静止
+void IMU_Check_Offset(void) 
+{
+    float sum_gz = 0;
+    const int sample_count = 500;
+    
+    for(int i = 0; i < sample_count; i++) {
+        BMI088_GetData(&bmi); // 获取原始数据
+        sum_gz += (float)bmi.gyro[2] * 0.0609756f; // 累加 Z 轴度/秒
+        HAL_Delay(2); // 采样间隔
+    }
+    gz_offset = sum_gz / (float)sample_count; // 计算平均偏置
+    is_calibrated = 1;
+}
+// 90秒偏14度
 /*
  * 姿态融合
  * 单位: m/s^2   rad/s
 */
-static void ImuUpdate(float gx, float gy, float gz, float ax, float ay, float az)//g表陀螺仪，a表加计
+static void ImuUpdate(float gx, float gy, float gz, float ax, float ay, float az)
 {
- 	float norm;
-	
-	float q0q0 = q0 * q0;
-	float q0q1 = q0 * q1;
-	float q0q2 = q0 * q2;
-	float q1q1 = q1 * q1;
-	float q1q3 = q1 * q3;
-	float q2q2 = q2*q2;
-	float q2q3 = q2*q3;
-	float q3q3 = q3*q3;	
-	float vx, vy, vz;
-	float ex, ey, ez;
-	
-	float q0_yawq0_yaw = q0_yaw * q0_yaw;
-	float q1_yawq1_yaw = q1_yaw * q1_yaw;
-	float q2_yawq2_yaw = q2_yaw * q2_yaw;
-	float q3_yawq3_yaw = q3_yaw * q3_yaw;
-	float q1_yawq2_yaw = q1_yaw * q2_yaw;
-	float q0_yawq3_yaw = q0_yaw * q3_yaw;
-	
-	//**************************Yaw轴计算******************************
-	//Yaw轴四元素的微分方程，先单独解出yaw的姿态
-	q0_yaw = q0_yaw + (-q1_yaw * gx - q2_yaw * gy - q3_yaw * gz) * halfT;	//halfT采样时间的一半
-	q1_yaw = q1_yaw + (q0_yaw * gx + q2_yaw * gz - q3_yaw * gy) * halfT;
-	q2_yaw = q2_yaw + (q0_yaw * gy - q1_yaw * gz + q3_yaw * gx) * halfT;
-	q3_yaw = q3_yaw + (q0_yaw * gz + q1_yaw * gy - q2_yaw * gx) * halfT;
-	
-	//规范化Yaw轴四元数
-	norm = sqrt(q0_yawq0_yaw + q1_yawq1_yaw + q2_yawq2_yaw + q3_yawq3_yaw);
-	q0_yaw = q0_yaw / norm;
-	q1_yaw = q1_yaw / norm;
-	q2_yaw = q2_yaw / norm;
-	q3_yaw = q3_yaw / norm;
+    float norm;
+    float vx, vy, vz;
+    float ex, ey, ez;
 
-	//规范化加速度计值
-	norm = sqrt(ax * ax + ay * ay + az * az); 
-	if(norm < 0.1f) return;
-	ax = ax / norm;
-	ay = ay / norm;
-	az = az / norm;
-		
-	//估计重力方向和流量/变迁，重力加速度在机体系的投影
-	vx = 2 * (q1q3 - q0q2);											
-	vy = 2 * (q0q1 + q2q3);
-	vz = q0q0 - q1q1 - q2q2 + q3q3 ;
-		
-	//向量外积再相减得到差分就是误差
-	ex = (ay * vz - az * vy) ;      
-	ey = (az * vx - ax * vz) ;
-	ez = (ax * vy - ay * vx) ;
-	
-	//对误差进行PI计算
-	xErrorInt = xErrorInt + ex * Ki;			
-	yErrorInt = yErrorInt + ey * Ki;
-	zErrorInt = zErrorInt + ez * Ki;
-	
-	//校正陀螺仪
-	gx = gx + Kp * ex + xErrorInt;					
-	gy = gy + Kp * ey + yErrorInt;
-	gz = gz + Kp * ez + zErrorInt;			
-				
-	//四元素的微分方程
-	q0 = q0 + (-q1 * gx - q2 * gy - q3 * gz) * halfT;
-	q1 = q1 + (q0 * gx + q2	*gz - q3 * gy) * halfT;
-	q2 = q2 + (q0 * gy - q1	*gz + q3 * gx) * halfT;
-	q3 = q3 + (q0 * gz + q1	*gy - q2 * gx) * halfT;
-	
-	//规范化Pitch、Roll轴四元数
-	norm = sqrt(q0q0 + q1q1 + q2q2 + q3q3);
-	q0 = q0 / norm;
-	q1 = q1 / norm;
-	q2 = q2 / norm;
-	q3 = q3 / norm;
-	
-	//求解欧拉角
-	bmi.pitch = atan2(2 * q2q3 + 2 * q0q1, -2 * q1q1 - 2 * q2q2 + 1) * 57.3f - 3.3f;
-	bmi.roll = asin(-2 * q1q3 + 2 * q0q2) * 57.3f - 45.3f;
-	bmi.yaw = atan2(2 * q1_yawq2_yaw + 2 * q0_yawq3_yaw, -2 * q2_yawq2_yaw - 2 * q3_yawq3_yaw + 1)	* 57.3f;
+    // 1. 规范化加速度计值
+    norm = sqrt(ax * ax + ay * ay + az * az); 
+    if(norm < 0.1f) return;
+    ax /= norm; ay /= norm; az /= norm;
+        
+    // 2. 估计重力投影
+    vx = 2.0f * (q1*q3 - q0*q2);                                            
+    vy = 2.0f * (q0*q1 + q2*q3);
+    vz = q0*q0 - q1*q1 - q2*q2 + q3*q3 ;
+        
+    // 3. 计算误差 (这里 ez 在无磁力计时理论上接近 0)
+    ex = (ay * vz - az * vy);      
+    ey = (az * vx - ax * vz);
+    ez = (ax * vy - ay * vx);
+    
+    // 4. PI 修正 (增加对 ez 的观察)
+    xErrorInt += ex * Ki;            
+    yErrorInt += ey * Ki;
+    zErrorInt += ez * Ki;
+    
+    gx += Kp * ex + xErrorInt;                    
+    gy += Kp * ey + yErrorInt;
+    gz += Kp * ez + zErrorInt;            
+                
+    // 5. 四元数更新 (严格使用 halfT)
+    // 这里的 gx, gy, gz 必须是 rad/s
+    float q0_n = q0 + (-q1*gx - q2*gy - q3*gz) * halfT;
+    float q1_n = q1 + ( q0*gx + q2*gz - q3*gy) * halfT;
+    float q2_n = q2 + ( q0*gy - q1*gz + q3*gx) * halfT;
+    float q3_n = q3 + ( q0*gz + q1*gy - q2*gx) * halfT;
+    
+    // 6. 归一化
+    norm = sqrt(q0_n*q0_n + q1_n*q1_n + q2_n*q2_n + q3_n*q3_n);
+    q0 = q0_n / norm; q1 = q1_n / norm; q2 = q2_n / norm; q3 = q3_n / norm;
+    
+    // 7. 提取角度
+    bmi.pitch = atan2(2.0f * (q0*q1 + q2*q3), 1.0f - 2.0f * (q1*q1 + q2*q2)) * 57.29578f - 3.3f;
+    bmi.roll  = asin(2.0f * (q0*q2 - q1*q3)) * 57.29578f - 45.3f;
+    // Yaw 轴直接提取
+    bmi.yaw   = atan2(2.0f * (q1*q2 + q0*q3), 1.0f - 2.0f * (q2*q2 + q3*q3)) * 57.29578f;
 }
+
 void IMU_GetAngle(uint8_t on)
 {
     BMI088_GetData(&bmi);
@@ -136,6 +122,13 @@ void IMU_GetAngle(uint8_t on)
 	bd_ax = 1.0064f*ax - 717.6192f;
 	bd_ay = 1.0104f*ay + 39.3216f;
 	bd_az = 0.9762f*az + 704.5120f;
+
+	// 1. 计算带单位的陀螺仪数据 (°/s)
+    float raw_gz = (float)bmi.gyro[2] * 0.0609756f;
+    
+    // 2. 减去静态零偏
+    bd_gz = raw_gz - gz_offset;
+	if(fabs(bd_gz) < 0.05f) bd_gz = 0.0f;
 	
 	LPF_1_(1.8f, 0.002f, bd_gx*0.0174533f, gx);
 	LPF_1_(1.8f, 0.002f, bd_gy*0.0174533f, gy);
@@ -144,6 +137,6 @@ void IMU_GetAngle(uint8_t on)
 	acc_sp[1] += ax * 5.2f;
 	acc_sp[2] -= ay * 5.2f;	
 	
-	if(on == 1)
+	if(on == 1 && is_calibrated)
 		ImuUpdate(bd_gx*0.0174533f, bd_gy*0.0174533f, bd_gz*0.0174533f, bd_ax, bd_ay, bd_az);
 }
